@@ -66,6 +66,17 @@ defmodule Jido.Agent.Strategy.FSM do
   `cmd/2` only prepares the work. Use `Jido.AgentServer` (or another runtime
   that executes `%Directive.RunInstruction{}`) to run the instruction batch and
   feed the result back into the strategy.
+
+  ## Action Return Shapes
+
+  Instruction results are normalized before processing. This strategy handles:
+
+  - `{:ok, %Jido.Action.Result{}}` — `data` is applied to agent state, `effects`
+    are processed as state operations
+  - `{:ok, map()}` — applied directly to agent state
+  - `{:ok, map(), effects}` — applied to state with effects processed
+  - `{:error, reason}` / `{:error, reason, effects}` — effects are applied,
+    then an error directive is produced
   """
 
   use Jido.Agent.Strategy
@@ -348,7 +359,12 @@ defmodule Jido.Agent.Strategy.FSM do
     {StateOps.apply_result(agent, result), machine, [], :ok}
   end
 
-  defp apply_instruction_result(agent, machine, %{status: :error, reason: reason}) do
+  defp apply_instruction_result(agent, machine, %{
+         status: :error,
+         reason: reason,
+         effects: effects
+       }) do
+    {agent, _directives} = StateOps.apply_state_ops(agent, List.wrap(effects))
     machine = %{machine | error: reason}
     error = Error.execution_error("Instruction failed", %{reason: reason})
     {agent, machine, [%Directive.Error{error: error, context: :instruction}], :error}

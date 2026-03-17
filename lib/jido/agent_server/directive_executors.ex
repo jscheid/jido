@@ -52,6 +52,7 @@ defimpl Jido.AgentServer.DirectiveExec, for: Jido.Agent.Directive.RunInstruction
 
   require Logger
 
+  alias Jido.Action.Result
   alias Jido.AgentServer.State
 
   def exec(
@@ -82,6 +83,23 @@ defimpl Jido.AgentServer.DirectiveExec, for: Jido.Agent.Directive.RunInstruction
         Logger.warning("AgentServer #{state.id} queue overflow, dropping directives")
         {:ok, state}
     end
+  end
+
+  # Normalizes raw results from Jido.Exec.run/1 into a flat payload map for strategies.
+  #
+  # Handles:
+  #   {:ok, %Result{data:, effects:, content:}} → %{status: :ok, result: data, effects: [...], content: [...]}
+  #   {:ok, map()}                              → %{status: :ok, result: map, effects: []}
+  #   {:ok, map(), effects}                     → %{status: :ok, result: map, effects: [...]}
+  #   {:error, reason}                          → %{status: :error, reason: reason, effects: []}
+  #   {:error, reason, effects}                 → %{status: :error, reason: reason, effects: [...]}
+  defp normalize_result_payload({:ok, %Result{data: data, effects: effects, content: content}}) do
+    %{
+      status: :ok,
+      result: data,
+      effects: List.wrap(effects),
+      content: List.wrap(content)
+    }
   end
 
   defp normalize_result_payload({:ok, result}) do

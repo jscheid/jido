@@ -11,6 +11,16 @@ defmodule Jido.Agent.Strategy.Direct do
 
   This is the default strategy and provides the simplest execution model.
 
+  ## Action Return Shapes
+
+  Actions executed through this strategy may return:
+
+  - `{:ok, %Jido.Action.Result{}}` — `data` is merged into agent state, `effects` are
+    processed as state operations
+  - `{:ok, map()}` — merged directly into agent state
+  - `{:ok, map(), effects}` — merged into state with effects processed
+  - `{:error, reason}` / `{:error, reason, effects}` — produces an error directive
+
   ## Thread Tracking
 
   When `thread?` option is enabled via `ctx[:strategy_opts][:thread?]` or if a thread
@@ -25,6 +35,7 @@ defmodule Jido.Agent.Strategy.Direct do
 
   use Jido.Agent.Strategy
 
+  alias Jido.Action.Result
   alias Jido.Agent
   alias Jido.Agent.Directive
   alias Jido.Agent.Strategy.InstructionTracking
@@ -73,6 +84,11 @@ defmodule Jido.Agent.Strategy.Direct do
     instruction = %{instruction | context: Map.put(instruction.context, :state, agent.state)}
 
     case Jido.Exec.run(instruction) do
+      {:ok, %Result{data: data, effects: effects}} when is_map(data) ->
+        agent = StateOps.apply_result(agent, data)
+        {agent, directives} = StateOps.apply_state_ops(agent, List.wrap(effects))
+        {agent, directives, :ok}
+
       {:ok, result} when is_map(result) ->
         {StateOps.apply_result(agent, result), [], :ok}
 
@@ -84,6 +100,13 @@ defmodule Jido.Agent.Strategy.Direct do
       {:error, reason} ->
         error = Error.execution_error("Instruction failed", %{reason: reason})
         {agent, [%Directive.Error{error: error, context: :instruction}], :error}
+
+      {:error, reason, effects} ->
+        {agent, effect_directives} = StateOps.apply_state_ops(agent, List.wrap(effects))
+        error = Error.execution_error("Instruction failed", %{reason: reason})
+
+        {agent, [%Directive.Error{error: error, context: :instruction} | effect_directives],
+         :error}
     end
   end
 end
